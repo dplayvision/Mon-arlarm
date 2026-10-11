@@ -23,6 +23,7 @@ label{display:block;font-size:13px;font-weight:650;color:#334155;margin-bottom:5
 input,select{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:white;color:var(--ink);font:inherit}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 button,.filebutton{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:white;font:600 14px system-ui;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
 button.secondary,.filebutton.secondary{background:#e2e8f0;color:#172033}
 button.danger{background:#fee2e2;color:var(--red)}
 button.small{padding:7px 10px;font-size:13px}
@@ -51,6 +52,7 @@ th,td{font-size:13px;padding:8px 5px}
 </style>
 </head>
 <body>
+
 <header>
 <div class="wrap">
 <h1>🛡️ Mon alarme</h1>
@@ -170,6 +172,7 @@ th,td{font-size:13px;padding:8px 5px}
 
 <script>
 "use strict";
+
 const KEY="monAlarmeData_v1";
 const BACKUP_KEY="monAlarmeAutoBackup_v1";
 const PIN_KEY="monAlarmePin_v1";
@@ -202,8 +205,13 @@ batteries:[
 ]
 };
 
-function cloneInitial(){return JSON.parse(JSON.stringify(initial))}
-function validData(x){return !!x&&Array.isArray(x.detectors)&&Array.isArray(x.batteries)&&Array.isArray(x.code)}
+function cloneInitial(){
+return JSON.parse(JSON.stringify(initial));
+}
+
+function validData(x){
+return !!x&&Array.isArray(x.detectors)&&Array.isArray(x.batteries)&&Array.isArray(x.code);
+}
 
 function loadData(){
 try{
@@ -532,6 +540,10 @@ toast("Données réinitialisées.");
 }
 });
 
+/* ==================================================
+   PIN ET FACE ID / CLÉS D'ACCÈS
+================================================== */
+
 const overlay=document.getElementById("pinOverlay");
 const pinInput=document.getElementById("pinInput");
 const pinError=document.getElementById("pinError");
@@ -542,7 +554,8 @@ document.getElementById("faceStatus").textContent=message;
 }
 
 function b64url(buffer){
-return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 }
 
 function fromB64url(value){
@@ -552,121 +565,247 @@ return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));
 }
 
 function faceAvailable(){
-return window.isSecureContext&&!!window.PublicKeyCredential&&!!navigator.credentials;
+return window.isSecureContext &&
+!!window.PublicKeyCredential &&
+!!navigator.credentials &&
+typeof navigator.credentials.create==="function" &&
+typeof navigator.credentials.get==="function";
+}
+
+function getPIN(){
+try{return localStorage.getItem(PIN_KEY)||""}
+catch(e){return ""}
 }
 
 async function activateFaceID(){
 const entered=pinInput.value.trim();
-if(!getPIN()){alert("Crée d'abord ton PIN, puis active Face ID.");return}
-if(entered!==getPIN()){
+const savedPIN=getPIN();
+
+if(!savedPIN){
+alert("Crée d'abord ton PIN, puis réessaie.");
+return;
+}
+
+if(entered!==savedPIN){
 alert("Entre ton PIN correct dans le champ avant d'activer Face ID.");
 pinInput.focus();
 return;
 }
+
 if(!faceAvailable()){
-alert("Face ID / clé d’accès n’est pas disponible ici. Ouvre ton site GitHub Pages dans Safari sur ton iPhone.");
+setFaceStatus("Navigateur incompatible ou site non sécurisé.");
+alert("Ouvre ton site GitHub Pages en HTTPS dans Safari sur ton iPhone.");
 return;
 }
+
+if(!window.isSecureContext){
+alert("Le site doit être ouvert en HTTPS.");
+return;
+}
+
 try{
 setFaceStatus("Activation de Face ID en cours…");
-const credential=await navigator.credentials.create({publicKey:{
-challenge:crypto.getRandomValues(new Uint8Array(32)),
-rp:{name:"Mon alarme",id:location.hostname},
-user:{id:new TextEncoder().encode("mon-alarme-local-user"),name:"mon-alarme-"+location.hostname,displayName:"Mon alarme"},
-pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
-authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required",residentKey:"preferred"},
-timeout:60000,attestation:"none"
-}});
-if(!credential)throw new Error("Aucune clé d’accès créée.");
+
+const challenge=crypto.getRandomValues(new Uint8Array(32));
+const userId=crypto.getRandomValues(new Uint8Array(16));
+
+const credential=await navigator.credentials.create({
+publicKey:{
+challenge:challenge,
+rp:{
+name:"Mon alarme",
+id:location.hostname
+},
+user:{
+id:userId,
+name:"mon-alarme",
+displayName:"Mon alarme"
+},
+pubKeyCredParams:[
+{type:"public-key",alg:-7},
+{type:"public-key",alg:-257}
+],
+authenticatorSelection:{
+authenticatorAttachment:"platform",
+userVerification:"required",
+residentKey:"required"
+},
+timeout:60000,
+attestation:"none"
+}
+});
+
+if(!credential){
+throw new Error("Aucune clé d'accès créée.");
+}
+
 localStorage.setItem(FACE_ID_KEY,b64url(credential.rawId));
-document.getElementById("faceLoginBtn").disabled=false;
-setFaceStatus("Face ID est activé sur cet appareil.");
-alert("Face ID activé. Tu peux utiliser Face ID ou ton PIN.");
+
+setFaceStatus("Face ID est configuré sur cet appareil.");
+afficherVerrou();
+
+alert("Configuration terminée. Tu peux maintenant essayer Face ID.");
+
 }catch(error){
-console.error(error);
-setFaceStatus("Face ID n’a pas pu être activé. Le PIN reste disponible.");
-alert("Activation impossible ou annulée. Vérifie que le site est ouvert dans Safari et réessaie.");
+console.error("Erreur activation Face ID :",error);
+
+let message="Activation impossible. Le PIN reste disponible.";
+
+if(error.name==="NotAllowedError"){
+message="Demande annulée ou refusée. Vérifie aussi les réglages Face ID de ton iPhone.";
+}else if(error.name==="InvalidStateError"){
+message="Une clé existe peut-être déjà pour ce site.";
+}else if(error.name==="SecurityError"){
+message="Erreur de sécurité : vérifie le HTTPS et le domaine du site.";
+}
+
+setFaceStatus(message);
+alert(message);
 }
 }
 
 async function faceIDLogin(){
-if(!faceAvailable()){alert("Face ID / clé d’accès n’est pas disponible. Utilise ton PIN.");return}
+if(!faceAvailable()){
+alert("Face ID n'est pas disponible ici. Ouvre le site en HTTPS dans Safari.");
+return;
+}
+
 let saved="";
-try{saved=localStorage.getItem(FACE_ID_KEY)||""}catch(e){}
-if(!saved){alert("Face ID n’est pas encore activé. Entre ton PIN puis appuie sur « Activer Face ID ».");pinInput.focus();return}
+try{
+saved=localStorage.getItem(FACE_ID_KEY)||"";
+}catch(e){}
+
+if(!saved){
+alert("Face ID n'est pas configuré. Entre ton PIN puis active Face ID.");
+pinInput.focus();
+return;
+}
+
 try{
 setFaceStatus("Vérification Face ID en cours…");
-const credential=await navigator.credentials.get({publicKey:{
+
+const credential=await navigator.credentials.get({
+publicKey:{
 challenge:crypto.getRandomValues(new Uint8Array(32)),
-allowCredentials:[{type:"public-key",id:fromB64url(saved)}],
-userVerification:"required",timeout:60000
-}});
-if(!credential||b64url(credential.rawId)!==saved)throw new Error("Clé d’accès non reconnue.");
+rpId:location.hostname,
+allowCredentials:[{
+type:"public-key",
+id:fromB64url(saved)
+}],
+userVerification:"required",
+timeout:60000
+}
+});
+
+if(!credential||b64url(credential.rawId)!==saved){
+throw new Error("Clé d'accès non reconnue.");
+}
+
 overlay.style.display="none";
 pinError.textContent="";
 setFaceStatus("Déverrouillé avec Face ID.");
+
 }catch(error){
-console.error(error);
-setFaceStatus("Face ID annulé ou non reconnu. Utilise ton PIN.");
-alert("Face ID n’a pas fonctionné. Tu peux déverrouiller avec ton PIN.");
-}
+console.error("Erreur connexion Face ID :",error);
+
+let message="Face ID a échoué. Utilise ton PIN.";
+
+if(error.name==="NotAllowedError"){
+message="Demande annulée ou authentification refusée. Réessaie ou utilise ton PIN.";
+}else if(error.name==="SecurityError"){
+message="Le domaine ne correspond pas à celui utilisé lors de l'activation.";
 }
 
-function getPIN(){
-try{return localStorage.getItem(PIN_KEY)||""}catch(e){return ""}
+setFaceStatus(message);
+alert(message);
+}
 }
 
 function afficherVerrou(){
 const has=!!getPIN();
+
 pinMode=has?"unlock":"setup";
-document.getElementById("pinTitle").textContent=has?"Mon alarme":"Créer votre code PIN";
-document.getElementById("pinIntro").textContent=has?"Entre ton PIN pour accéder à l’application.":"Choisis un PIN de 4 à 8 chiffres.";
-document.getElementById("pinSubmit").textContent=has?"Déverrouiller":"Créer mon PIN";
+
+document.getElementById("pinTitle").textContent=
+has?"Mon alarme":"Créer votre code PIN";
+
+document.getElementById("pinIntro").textContent=
+has?"Entre ton PIN pour accéder à l’application.":"Choisis un PIN de 4 à 8 chiffres.";
+
+document.getElementById("pinSubmit").textContent=
+has?"Déverrouiller":"Créer mon PIN";
+
 pinInput.value="";
 pinError.textContent="";
 overlay.style.display="flex";
-const setup=document.getElementById("faceSetupBtn");
-const login=document.getElementById("faceLoginBtn");
+
 let faceSaved=false;
 try{faceSaved=!!localStorage.getItem(FACE_ID_KEY)}catch(e){}
-setup.disabled=!has;
-login.disabled=!has||!faceSaved;
-setFaceStatus(faceSaved?"Face ID est configuré sur cet appareil.":"Face ID n’est pas encore activé.");
+
+document.getElementById("faceSetupBtn").disabled=!has;
+document.getElementById("faceLoginBtn").disabled=!has||!faceSaved;
+
+setFaceStatus(
+faceSaved
+?"Face ID est configuré sur cet appareil."
+:"Face ID n’est pas encore activé."
+);
+
 setTimeout(()=>pinInput.focus(),100);
 }
 
-function verrouiller(){afficherVerrou()}
+function verrouiller(){
+afficherVerrou();
+}
 
 function changerPIN(){
 const old=getPIN();
+
 if(old){
 const entered=prompt("Entre ton PIN actuel :");
 if(entered===null)return;
-if(entered!==old){alert("PIN actuel incorrect.");return}
+if(entered!==old){
+alert("PIN actuel incorrect.");
+return;
 }
+}
+
 const next=prompt("Choisis un nouveau PIN de 4 à 8 chiffres :");
 if(next===null)return;
-if(!/^\d{4,8}$/.test(next)){alert("Le PIN doit contenir 4 à 8 chiffres.");return}
+
+if(!/^\d{4,8}$/.test(next)){
+alert("Le PIN doit contenir 4 à 8 chiffres.");
+return;
+}
+
 try{
 localStorage.setItem(PIN_KEY,next);
 alert("PIN enregistré.");
 afficherVerrou();
-}catch(e){alert("Impossible d’enregistrer le PIN.")}
+}catch(e){
+alert("Impossible d’enregistrer le PIN.");
+}
 }
 
 document.getElementById("pinForm").addEventListener("submit",e=>{
 e.preventDefault();
+
 const value=pinInput.value.trim();
+
 if(!/^\d{4,8}$/.test(value)){
 pinError.textContent="Le PIN doit contenir 4 à 8 chiffres.";
 return;
 }
+
 if(pinMode==="setup"){
 try{
 localStorage.setItem(PIN_KEY,value);
-overlay.style.display="none";
-document.getElementById("faceSetupBtn").disabled=false;
-}catch(e){pinError.textContent="Impossible d’enregistrer le PIN."}
+afficherVerrou();
+pinError.textContent="";
+setFaceStatus("PIN créé. Tu peux activer Face ID en saisissant ton PIN.");
+}catch(e){
+pinError.textContent="Impossible d’enregistrer le PIN.";
+}
 }else if(value===getPIN()){
 overlay.style.display="none";
 pinError.textContent="";
