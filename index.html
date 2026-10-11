@@ -1,0 +1,685 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#172554">
+<title>Mon alarme</title>
+<style>
+:root{--bg:#f3f5f9;--ink:#172033;--muted:#64748b;--line:#dbe2ea;--blue:#1d4ed8;--red:#b91c1c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif}
+header{background:#172554;color:white;padding:22px 16px}
+header .wrap,main{max-width:1000px;margin:auto}
+h1{margin:0 0 5px;font-size:27px}
+header p{margin:0;color:#dbeafe}
+main{padding:16px;display:grid;gap:16px}
+.card{background:white;border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 3px 12px #0f172a0a}
+h2{font-size:20px;margin:0 0 12px}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{display:block;font-size:13px;font-weight:650;color:#334155;margin-bottom:5px}
+input,select{width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:white;color:var(--ink);font:inherit}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button,.filebutton{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:white;font:600 14px system-ui;cursor:pointer}
+button.secondary,.filebutton.secondary{background:#e2e8f0;color:#172033}
+button.danger{background:#fee2e2;color:var(--red)}
+button.small{padding:7px 10px;font-size:13px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 7px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);text-transform:uppercase}
+.tablewrap{overflow-x:auto}
+.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#dbeafe;color:#1e40af;font-size:12px;font-weight:700}
+.notice{padding:10px 12px;border-radius:10px;background:#eff6ff;color:#1e40af;font-size:13px;margin-top:10px}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#172033;color:white;padding:10px 15px;border-radius:12px;display:none;max-width:90%;z-index:10000}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:0 16px 24px}
+#pinOverlay{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:18px}
+#pinPanel{width:min(100%,390px);background:white;border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:0 18px 60px #0f172a20}
+#pinPanel .pinIcon{text-align:center;font-size:42px;margin-bottom:8px}
+#pinPanel h2{text-align:center}
+#pinPanel p{text-align:center;color:var(--muted);font-size:13px}
+#pinError{color:var(--red);font-size:13px;min-height:18px;margin-top:8px}
+#faceStatus{min-height:18px}
+tr.zone-heading td{background:#eff6ff;color:#1e3a8a;font-weight:800;border-top:2px solid #bfdbfe}
+@media(max-width:560px){
+header{padding:20px 16px}
+h1{font-size:24px}
+.card{padding:13px}
+th,td{font-size:13px;padding:8px 5px}
+}
+</style>
+</head>
+<body>
+<header>
+<div class="wrap">
+<h1>🛡️ Mon alarme</h1>
+<p>Détecteurs, centrale, piles et sauvegardes</p>
+<div class="actions">
+<button type="button" class="secondary" onclick="changerPIN()">Modifier le PIN</button>
+<button type="button" class="secondary" onclick="verrouiller()">Verrouiller</button>
+</div>
+</div>
+</header>
+
+<main>
+<section class="card">
+<h2>Détecteurs et zones</h2>
+<p class="hint">Les détecteurs sont organisés automatiquement par zone. Le suivi des piles reste dans sa propre rubrique en bas.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Équipement</th><th>Zone</th><th>Notes</th><th>Actions</th></tr></thead>
+<tbody id="detectorsBody"></tbody>
+</table>
+</div>
+<div class="grid" style="margin-top:14px">
+<div><label for="detName">Nom du détecteur</label><input id="detName" placeholder="Ex. Détecteur garage"></div>
+<div><label for="detZone">Zone</label><input id="detZone" placeholder="Ex. 2"></div>
+<div><label for="detNotes">Notes</label><input id="detNotes" placeholder="Optionnel"></div>
+</div>
+<div class="actions">
+<button id="saveDetector">Ajouter le détecteur</button>
+<button id="cancelDetector" class="secondary" hidden>Annuler</button>
+</div>
+</section>
+
+<section class="card">
+<h2>Configuration de la centrale</h2>
+<p class="hint">X = activée ; . = inactive. Cette grille sert au suivi de la configuration.</p>
+<div class="grid" id="codeGrid"></div>
+<div class="actions"><button id="saveCode">Enregistrer la configuration</button></div>
+</section>
+
+<section class="card">
+<h2>Suivi des piles</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Équipement</th><th>Date</th><th>Type / quantité</th><th>Actions</th></tr></thead>
+<tbody id="batteriesBody"></tbody>
+</table>
+</div>
+<div class="grid" style="margin-top:14px">
+<div><label for="batName">Équipement</label><input id="batName" placeholder="Ex. Détecteur entrée"></div>
+<div><label for="batDate">Date du changement</label><input id="batDate" type="date"></div>
+<div><label for="batType">Type / quantité</label><input id="batType" placeholder="Ex. 2 × AAA"></div>
+</div>
+<div class="actions">
+<button id="saveBattery">Ajouter l'entrée pile</button>
+<button id="cancelBattery" class="secondary" hidden>Annuler</button>
+</div>
+</section>
+
+<section class="card">
+<h2>Accès donnés</h2>
+<p class="hint">Enregistre les personnes auxquelles tu communiques un code d'alarme ou donnes un badge.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Nom / personne</th><th>N° de badge donné</th><th>Code communiqué</th><th>Actions</th></tr></thead>
+<tbody id="accessBody"></tbody>
+</table>
+</div>
+<div class="grid" style="margin-top:14px">
+<div><label for="accessName">Nom / personne</label><input id="accessName" autocomplete="off" placeholder="Ex. Femme de ménage"></div>
+<div><label for="accessBadge">Numéro du badge donné</label><input id="accessBadge" autocomplete="off" placeholder="Ex. Badge n° 03"></div>
+<div><label for="accessCode">Code de l'alarme donné</label><input id="accessCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Code communiqué"></div>
+</div>
+<div class="actions">
+<button id="saveAccess" type="button">Ajouter l'accès</button>
+<button id="cancelAccess" type="button" class="secondary" hidden>Annuler</button>
+<button id="toggleAccessCode" type="button" class="secondary">Afficher le code</button>
+</div>
+</section>
+
+<section class="card">
+<h2>Sauvegarde et restauration</h2>
+<p class="hint">Une copie automatique précédente est conservée sur cet appareil. Télécharge également une sauvegarde JSON pour conserver une copie indépendante.</p>
+<div class="actions">
+<button id="restoreLocalBtn" class="secondary" type="button">Restaurer la dernière sauvegarde automatique</button>
+<button id="exportBtn" type="button">Télécharger une sauvegarde JSON</button>
+<label class="filebutton secondary" for="importFile">Restaurer depuis un fichier JSON</label>
+<input id="importFile" type="file" accept="application/json,.json" hidden>
+</div>
+<p id="backupStatus" class="hint">Vérification des sauvegardes…</p>
+<div class="notice">Avant une restauration, une confirmation est demandée. L'import d'un fichier remplace les données actuelles.</div>
+<div class="actions"><button id="resetBtn" class="danger">Réinitialiser les données</button></div>
+</section>
+</main>
+
+<footer>Mon alarme • Exporte régulièrement une sauvegarde et garde-la hors de ton téléphone.</footer>
+<div id="toast"></div>
+
+<div id="pinOverlay" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
+<div id="pinPanel">
+<div class="pinIcon">🛡️</div>
+<h2 id="pinTitle">Mon alarme</h2>
+<p id="pinIntro">Entre ton PIN pour accéder à l'application.</p>
+<form id="pinForm">
+<label for="pinInput">Code PIN (4 à 8 chiffres)</label>
+<input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" required placeholder="••••">
+<div id="pinError" aria-live="polite"></div>
+<div id="pinActions"><button id="pinSubmit" type="submit">Déverrouiller</button></div>
+</form>
+<div class="actions" style="display:grid">
+<button id="faceLoginBtn" type="button" class="secondary" onclick="faceIDLogin()">Utiliser Face ID</button>
+<button id="faceSetupBtn" type="button" class="secondary" onclick="activateFaceID()">Activer Face ID avec mon PIN</button>
+</div>
+<p id="faceStatus" aria-live="polite">Face ID est facultatif. Tu peux toujours utiliser ton PIN.</p>
+<p>Le PIN est un verrou local : il ne chiffre pas les données du navigateur.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+const KEY="monAlarmeData_v1";
+const BACKUP_KEY="monAlarmeAutoBackup_v1";
+const PIN_KEY="monAlarmePin_v1";
+const FACE_ID_KEY="monAlarmeFaceID_v1";
+
+const initial={
+detectors:[
+{name:"Détecteur cave porte",zone:"2",notes:""},
+{name:"Détecteur cave entrée",zone:"4",notes:""},
+{name:"Détecteur entrée porte",zone:"2",notes:""},
+{name:"Détecteur couloir",zone:"4",notes:""},
+{name:"Détecteur salon",zone:"3",notes:""},
+{name:"Détecteur cuisine",zone:"3",notes:""}
+],
+code:Array.from({length:10},(_,i)=>({n:i+1,active:[1,2,3,6,7,9].includes(i+1)})),
+accesses:[],
+batteries:[
+{name:"Pile porte cave",date:"2021-07-01",type:""},
+{name:"Pile centrale extérieur",date:"2023-01-04",type:"6 × 9 V (à confirmer)"},
+{name:"Pile centrale garage",date:"2023-01-04",type:"6 × 9 V (à confirmer)"},
+{name:"Pile détecteur mouvement zone 3",date:"2026-09-26",type:"AAA — quantité à confirmer"},
+{name:"Pile détecteur mouvement zone 4",date:"2026-09-26",type:"AAA — quantité à confirmer"},
+{name:"Pile centrale couloir",date:"2026-09-26",type:"6 × 9 V (à confirmer)"},
+{name:"Pile porte d’entrée",date:"2026-09-26",type:"2 × AAA"},
+{name:"Pile détecteur cave",date:"2020-09-26",type:"2 × AAA — date à vérifier"},
+{name:"Télécommande",date:"",type:"2 × CR2016, 3 V"},
+{name:"Porte d’entrée devant",date:"",type:"2 × AAA"},
+{name:"Porte d’entrée cave",date:"",type:"2 × AAA"},
+{name:"Détecteurs zones 3 et 4 — réserve",date:"",type:"AAA — 4 piles"}
+]
+};
+
+function cloneInitial(){return JSON.parse(JSON.stringify(initial))}
+function validData(x){return !!x&&Array.isArray(x.detectors)&&Array.isArray(x.batteries)&&Array.isArray(x.code)}
+
+function loadData(){
+try{
+const x=JSON.parse(localStorage.getItem(KEY));
+if(validData(x)){
+if(!Array.isArray(x.accesses))x.accesses=[];
+return x;
+}
+}catch(e){}
+return cloneInitial();
+}
+
+let data=loadData();
+let editDetector=-1,editBattery=-1,editAccess=-1;
+
+function toast(message){
+const t=document.getElementById("toast");
+t.textContent=message;
+t.style.display="block";
+setTimeout(()=>t.style.display="none",2600);
+}
+
+function esc(s){
+return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function fmtDate(s){
+if(!s)return "—";
+const p=s.split("-");
+return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s;
+}
+
+function persist(){
+try{
+const old=localStorage.getItem(KEY);
+if(old&&validData(JSON.parse(old)))localStorage.setItem(BACKUP_KEY,old);
+localStorage.setItem(KEY,JSON.stringify(data));
+updateBackupStatus();
+toast("Données enregistrées.");
+}catch(e){
+toast("Enregistrement impossible. Télécharge une sauvegarde JSON.");
+}
+}
+
+function renderDetectors(){
+const body=document.getElementById("detectorsBody");
+if(!data.detectors.length){
+body.innerHTML='<tr><td colspan="4">Aucun détecteur.</td></tr>';
+return;
+}
+const sorted=data.detectors.map((d,i)=>({d,i})).sort((a,b)=>{
+const za=String(a.d.zone??"").trim(),zb=String(b.d.zone??"").trim();
+const na=Number(za),nb=Number(zb);
+if(za!==""&&zb!==""&&Number.isFinite(na)&&Number.isFinite(nb)&&na!==nb)return na-nb;
+if(za!==zb)return za.localeCompare(zb,"fr",{numeric:true});
+return String(a.d.name||"").localeCompare(String(b.d.name||""),"fr");
+});
+let lastZone=null,rows="";
+for(const {d,i} of sorted){
+const zone=String(d.zone||"—");
+if(zone!==lastZone){
+rows+=`<tr class="zone-heading"><td colspan="4">📍 Zone ${esc(zone)}</td></tr>`;
+lastZone=zone;
+}
+rows+=`<tr><td><strong>${esc(d.name)}</strong></td><td><span class="pill">Zone ${esc(zone)}</span></td><td>${esc(d.notes||"—")}</td><td><button class="small secondary" onclick="editDet(${i})">Modifier</button> <button class="small danger" onclick="delDet(${i})">Supprimer</button></td></tr>`;
+}
+body.innerHTML=rows;
+}
+
+function renderCode(){
+document.getElementById("codeGrid").innerHTML=data.code.map((c,i)=>`<div><label for="code${i}">Position ${c.n}</label><select id="code${i}"><option value="on" ${c.active?"selected":""}>X — activée</option><option value="off" ${!c.active?"selected":""}>. — inactive</option></select></div>`).join("");
+}
+
+function renderBatteries(){
+const body=document.getElementById("batteriesBody");
+body.innerHTML=data.batteries.length?data.batteries.map((x,i)=>`<tr><td><strong>${esc(x.name)}</strong></td><td>${fmtDate(x.date)}</td><td>${esc(x.type||"—")}</td><td><button class="small secondary" onclick="editBat(${i})">Modifier</button> <button class="small danger" onclick="delBat(${i})">Supprimer</button></td></tr>`).join(""):'<tr><td colspan="4">Aucune pile enregistrée.</td></tr>';
+}
+
+function renderAccesses(){
+const body=document.getElementById("accessBody");
+body.innerHTML=data.accesses.length?data.accesses.map((x,i)=>`<tr><td><strong>${esc(x.name||"—")}</strong></td><td>${esc(x.badgeNumber||"—")}</td><td><span class="access-secret" data-code="${esc(x.alarmCode||"")}">••••</span></td><td><button class="small secondary" onclick="editAccessItem(${i})">Modifier</button> <button class="small danger" onclick="deleteAccessItem(${i})">Supprimer</button> <button class="small secondary" onclick="toggleRowCode(this)">Afficher</button></td></tr>`).join(""):'<tr><td colspan="4">Aucun accès enregistré.</td></tr>';
+}
+
+function render(){
+renderDetectors();
+renderCode();
+renderBatteries();
+renderAccesses();
+}
+
+function toggleRowCode(btn){
+const cell=btn.closest("tr").querySelector(".access-secret");
+const shown=cell.dataset.shown==="1";
+cell.textContent=shown?"••••":(cell.dataset.code||"—");
+cell.dataset.shown=shown?"0":"1";
+btn.textContent=shown?"Afficher":"Masquer";
+}
+
+function clearAccessForm(){
+editAccess=-1;
+document.getElementById("accessName").value="";
+document.getElementById("accessBadge").value="";
+document.getElementById("accessCode").value="";
+document.getElementById("accessCode").type="password";
+document.getElementById("saveAccess").textContent="Ajouter l'accès";
+document.getElementById("cancelAccess").hidden=true;
+document.getElementById("toggleAccessCode").textContent="Afficher le code";
+}
+
+function editAccessItem(i){
+const x=data.accesses[i];
+editAccess=i;
+document.getElementById("accessName").value=x.name||"";
+document.getElementById("accessBadge").value=x.badgeNumber||"";
+document.getElementById("accessCode").value=x.alarmCode||"";
+document.getElementById("accessCode").type="password";
+document.getElementById("saveAccess").textContent="Enregistrer les modifications";
+document.getElementById("cancelAccess").hidden=false;
+document.getElementById("accessName").scrollIntoView({behavior:"smooth",block:"center"});
+}
+
+function deleteAccessItem(i){
+if(confirm("Supprimer cette fiche d’accès ?")){
+data.accesses.splice(i,1);
+persist();
+renderAccesses();
+if(editAccess===i)clearAccessForm();
+}
+}
+
+document.getElementById("saveAccess").addEventListener("click",()=>{
+const name=document.getElementById("accessName").value.trim();
+if(!name){toast("Indique le nom ou la personne.");return}
+const item={
+id:editAccess>=0?(data.accesses[editAccess].id||Date.now()):Date.now(),
+name,
+badgeNumber:document.getElementById("accessBadge").value.trim(),
+alarmCode:document.getElementById("accessCode").value.trim()
+};
+if(editAccess>=0)data.accesses[editAccess]=item;
+else data.accesses.push(item);
+persist();
+clearAccessForm();
+renderAccesses();
+});
+
+document.getElementById("cancelAccess").addEventListener("click",clearAccessForm);
+
+document.getElementById("toggleAccessCode").addEventListener("click",()=>{
+const input=document.getElementById("accessCode");
+const btn=document.getElementById("toggleAccessCode");
+const visible=input.type==="password";
+input.type=visible?"text":"password";
+btn.textContent=visible?"Masquer le code":"Afficher le code";
+});
+
+function editDet(i){
+const d=data.detectors[i];
+editDetector=i;
+document.getElementById("detName").value=d.name;
+document.getElementById("detZone").value=d.zone;
+document.getElementById("detNotes").value=d.notes||"";
+document.getElementById("saveDetector").textContent="Enregistrer les modifications";
+document.getElementById("cancelDetector").hidden=false;
+document.getElementById("detName").scrollIntoView({behavior:"smooth",block:"center"});
+}
+
+function clearDet(){
+editDetector=-1;
+document.getElementById("detName").value="";
+document.getElementById("detZone").value="";
+document.getElementById("detNotes").value="";
+document.getElementById("saveDetector").textContent="Ajouter le détecteur";
+document.getElementById("cancelDetector").hidden=true;
+}
+
+function delDet(i){
+if(confirm("Supprimer ce détecteur ?")){
+data.detectors.splice(i,1);
+persist();
+render();
+}
+}
+
+function editBat(i){
+const x=data.batteries[i];
+editBattery=i;
+document.getElementById("batName").value=x.name;
+document.getElementById("batDate").value=x.date||"";
+document.getElementById("batType").value=x.type||"";
+document.getElementById("saveBattery").textContent="Enregistrer les modifications";
+document.getElementById("cancelBattery").hidden=false;
+document.getElementById("batName").scrollIntoView({behavior:"smooth",block:"center"});
+}
+
+function clearBat(){
+editBattery=-1;
+document.getElementById("batName").value="";
+document.getElementById("batDate").value="";
+document.getElementById("batType").value="";
+document.getElementById("saveBattery").textContent="Ajouter l'entrée pile";
+document.getElementById("cancelBattery").hidden=true;
+}
+
+function delBat(i){
+if(confirm("Supprimer cette entrée pile ?")){
+data.batteries.splice(i,1);
+persist();
+render();
+}
+}
+
+document.getElementById("saveDetector").addEventListener("click",()=>{
+const name=document.getElementById("detName").value.trim();
+const zone=document.getElementById("detZone").value.trim();
+if(!name||!zone){toast("Indique le nom et la zone.");return}
+const obj={name,zone,notes:document.getElementById("detNotes").value.trim()};
+if(editDetector>=0)data.detectors[editDetector]=obj;
+else data.detectors.push(obj);
+persist();
+clearDet();
+render();
+});
+
+document.getElementById("cancelDetector").addEventListener("click",clearDet);
+
+document.getElementById("saveCode").addEventListener("click",()=>{
+data.code=data.code.map((c,i)=>({...c,active:document.getElementById("code"+i).value==="on"}));
+persist();
+});
+
+document.getElementById("saveBattery").addEventListener("click",()=>{
+const name=document.getElementById("batName").value.trim();
+if(!name){toast("Indique le nom de l’équipement.");return}
+const obj={name,date:document.getElementById("batDate").value,type:document.getElementById("batType").value.trim()};
+if(editBattery>=0)data.batteries[editBattery]=obj;
+else data.batteries.push(obj);
+persist();
+clearBat();
+render();
+});
+
+document.getElementById("cancelBattery").addEventListener("click",clearBat);
+
+function updateBackupStatus(){
+const el=document.getElementById("backupStatus");
+let auto=false;
+try{auto=!!localStorage.getItem(BACKUP_KEY)}catch(e){}
+el.textContent=auto?"✓ Une sauvegarde automatique précédente est disponible sur cet appareil. La copie JSON reste recommandée.":"Aucune sauvegarde automatique précédente pour le moment.";
+}
+
+function restoreLocalBackup(){
+let raw="";
+try{raw=localStorage.getItem(BACKUP_KEY)||""}catch(e){}
+if(!raw){toast("Aucune sauvegarde automatique disponible.");return}
+if(!confirm("Restaurer la dernière sauvegarde automatique ? Les données actuelles seront remplacées."))return;
+try{
+const x=JSON.parse(raw);
+if(!validData(x))throw Error();
+if(!Array.isArray(x.accesses))x.accesses=[];
+const current=localStorage.getItem(KEY);
+if(current)localStorage.setItem("monAlarmeAvantRestauration_v1",current);
+data=x;
+localStorage.setItem(KEY,JSON.stringify(data));
+render();
+clearDet();
+clearBat();
+clearAccessForm();
+updateBackupStatus();
+toast("Sauvegarde automatique restaurée.");
+}catch(e){toast("La sauvegarde automatique est invalide.")}
+}
+
+document.getElementById("restoreLocalBtn").addEventListener("click",restoreLocalBackup);
+
+document.getElementById("exportBtn").addEventListener("click",()=>{
+const packageData={app:"Mon alarme",version:1,exportedAt:new Date().toISOString(),data};
+const blob=new Blob([JSON.stringify(packageData,null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;
+a.download="sauvegarde-mon-alarme.json";
+a.click();
+setTimeout(()=>URL.revokeObjectURL(url),1000);
+toast("Fichier de sauvegarde téléchargé.");
+});
+
+document.getElementById("importFile").addEventListener("change",async e=>{
+const f=e.target.files[0];
+if(!f)return;
+try{
+const parsed=JSON.parse(await f.text());
+const x=parsed.data||parsed;
+if(!validData(x))throw Error();
+if(!Array.isArray(x.accesses))x.accesses=[];
+if(confirm("Restaurer ce fichier ? Les données actuelles seront remplacées.")){
+const current=localStorage.getItem(KEY);
+if(current)localStorage.setItem(BACKUP_KEY,current);
+data=x;
+localStorage.setItem(KEY,JSON.stringify(data));
+render();
+clearDet();
+clearBat();
+clearAccessForm();
+updateBackupStatus();
+toast("Sauvegarde importée avec succès.");
+}
+}catch(err){toast("Fichier invalide : sélectionne une sauvegarde Mon alarme.")}
+e.target.value="";
+});
+
+document.getElementById("resetBtn").addEventListener("click",()=>{
+if(confirm("Réinitialiser les données ? Une copie des données actuelles sera conservée avant réinitialisation.")){
+try{
+const current=localStorage.getItem(KEY);
+if(current)localStorage.setItem(BACKUP_KEY,current);
+}catch(e){}
+data=cloneInitial();
+try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){}
+render();
+clearDet();
+clearBat();
+clearAccessForm();
+updateBackupStatus();
+toast("Données réinitialisées.");
+}
+});
+
+const overlay=document.getElementById("pinOverlay");
+const pinInput=document.getElementById("pinInput");
+const pinError=document.getElementById("pinError");
+let pinMode="unlock";
+
+function setFaceStatus(message){
+document.getElementById("faceStatus").textContent=message;
+}
+
+function b64url(buffer){
+return btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+
+function fromB64url(value){
+const s=value.replace(/-/g,"+").replace(/_/g,"/");
+const padded=s+"=".repeat((4-s.length%4)%4);
+return Uint8Array.from(atob(padded),c=>c.charCodeAt(0));
+}
+
+function faceAvailable(){
+return window.isSecureContext&&!!window.PublicKeyCredential&&!!navigator.credentials;
+}
+
+async function activateFaceID(){
+const entered=pinInput.value.trim();
+if(!getPIN()){alert("Crée d'abord ton PIN, puis active Face ID.");return}
+if(entered!==getPIN()){
+alert("Entre ton PIN correct dans le champ avant d'activer Face ID.");
+pinInput.focus();
+return;
+}
+if(!faceAvailable()){
+alert("Face ID / clé d’accès n’est pas disponible ici. Ouvre ton site GitHub Pages dans Safari sur ton iPhone.");
+return;
+}
+try{
+setFaceStatus("Activation de Face ID en cours…");
+const credential=await navigator.credentials.create({publicKey:{
+challenge:crypto.getRandomValues(new Uint8Array(32)),
+rp:{name:"Mon alarme",id:location.hostname},
+user:{id:new TextEncoder().encode("mon-alarme-local-user"),name:"mon-alarme-"+location.hostname,displayName:"Mon alarme"},
+pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
+authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required",residentKey:"preferred"},
+timeout:60000,attestation:"none"
+}});
+if(!credential)throw new Error("Aucune clé d’accès créée.");
+localStorage.setItem(FACE_ID_KEY,b64url(credential.rawId));
+document.getElementById("faceLoginBtn").disabled=false;
+setFaceStatus("Face ID est activé sur cet appareil.");
+alert("Face ID activé. Tu peux utiliser Face ID ou ton PIN.");
+}catch(error){
+console.error(error);
+setFaceStatus("Face ID n’a pas pu être activé. Le PIN reste disponible.");
+alert("Activation impossible ou annulée. Vérifie que le site est ouvert dans Safari et réessaie.");
+}
+}
+
+async function faceIDLogin(){
+if(!faceAvailable()){alert("Face ID / clé d’accès n’est pas disponible. Utilise ton PIN.");return}
+let saved="";
+try{saved=localStorage.getItem(FACE_ID_KEY)||""}catch(e){}
+if(!saved){alert("Face ID n’est pas encore activé. Entre ton PIN puis appuie sur « Activer Face ID ».");pinInput.focus();return}
+try{
+setFaceStatus("Vérification Face ID en cours…");
+const credential=await navigator.credentials.get({publicKey:{
+challenge:crypto.getRandomValues(new Uint8Array(32)),
+allowCredentials:[{type:"public-key",id:fromB64url(saved)}],
+userVerification:"required",timeout:60000
+}});
+if(!credential||b64url(credential.rawId)!==saved)throw new Error("Clé d’accès non reconnue.");
+overlay.style.display="none";
+pinError.textContent="";
+setFaceStatus("Déverrouillé avec Face ID.");
+}catch(error){
+console.error(error);
+setFaceStatus("Face ID annulé ou non reconnu. Utilise ton PIN.");
+alert("Face ID n’a pas fonctionné. Tu peux déverrouiller avec ton PIN.");
+}
+}
+
+function getPIN(){
+try{return localStorage.getItem(PIN_KEY)||""}catch(e){return ""}
+}
+
+function afficherVerrou(){
+const has=!!getPIN();
+pinMode=has?"unlock":"setup";
+document.getElementById("pinTitle").textContent=has?"Mon alarme":"Créer votre code PIN";
+document.getElementById("pinIntro").textContent=has?"Entre ton PIN pour accéder à l’application.":"Choisis un PIN de 4 à 8 chiffres.";
+document.getElementById("pinSubmit").textContent=has?"Déverrouiller":"Créer mon PIN";
+pinInput.value="";
+pinError.textContent="";
+overlay.style.display="flex";
+const setup=document.getElementById("faceSetupBtn");
+const login=document.getElementById("faceLoginBtn");
+let faceSaved=false;
+try{faceSaved=!!localStorage.getItem(FACE_ID_KEY)}catch(e){}
+setup.disabled=!has;
+login.disabled=!has||!faceSaved;
+setFaceStatus(faceSaved?"Face ID est configuré sur cet appareil.":"Face ID n’est pas encore activé.");
+setTimeout(()=>pinInput.focus(),100);
+}
+
+function verrouiller(){afficherVerrou()}
+
+function changerPIN(){
+const old=getPIN();
+if(old){
+const entered=prompt("Entre ton PIN actuel :");
+if(entered===null)return;
+if(entered!==old){alert("PIN actuel incorrect.");return}
+}
+const next=prompt("Choisis un nouveau PIN de 4 à 8 chiffres :");
+if(next===null)return;
+if(!/^\d{4,8}$/.test(next)){alert("Le PIN doit contenir 4 à 8 chiffres.");return}
+try{
+localStorage.setItem(PIN_KEY,next);
+alert("PIN enregistré.");
+afficherVerrou();
+}catch(e){alert("Impossible d’enregistrer le PIN.")}
+}
+
+document.getElementById("pinForm").addEventListener("submit",e=>{
+e.preventDefault();
+const value=pinInput.value.trim();
+if(!/^\d{4,8}$/.test(value)){
+pinError.textContent="Le PIN doit contenir 4 à 8 chiffres.";
+return;
+}
+if(pinMode==="setup"){
+try{
+localStorage.setItem(PIN_KEY,value);
+overlay.style.display="none";
+document.getElementById("faceSetupBtn").disabled=false;
+}catch(e){pinError.textContent="Impossible d’enregistrer le PIN."}
+}else if(value===getPIN()){
+overlay.style.display="none";
+pinError.textContent="";
+}else{
+pinError.textContent="PIN incorrect. Réessaie.";
+pinInput.value="";
+pinInput.focus();
+}
+});
+
+render();
+updateBackupStatus();
+afficherVerrou();
+</script>
+</body>
+</html>
